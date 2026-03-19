@@ -20,7 +20,7 @@ Track medications for multiple recipients (pets or people) with scheduled remind
 ## Installation via HACS
 
 1. Open **HACS → Integrations → ⋮ → Custom repositories**
-2. Add `https://github.com/yourusername/ha-meds-tracker` as type **Integration**
+2. Add `[https://github.com/tmnyhbs/MedsTrackerForHomeAssistant]` as type **Integration**
 3. Search for "Meds Tracker" and install
 4. Restart Home Assistant
 5. Go to **Settings → Devices & Services → + Add Integration** → search **Meds Tracker**
