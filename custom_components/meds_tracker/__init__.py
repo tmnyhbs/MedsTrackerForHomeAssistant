@@ -21,7 +21,6 @@ from .store import MedsTrackerStore
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
 
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Meds Tracker from a config entry."""
     store = MedsTrackerStore(hass)
@@ -38,12 +37,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await async_setup_services(hass, coordinator)
 
     # --- FRONTEND REGISTRATION ---
-
-    # 1. Identify the physical folder
+    
+    # 1. Physical folder mapping
     frontend_dir = os.path.join(os.path.dirname(__file__), "frontend")
     
-    # 2. Register the FOLDER as a static path (maps URL to Disk)
-    # This allows us to access files via /meds_tracker_panel/filename.js
+    # 2. Register folder as static path
     await hass.http.async_register_static_paths([
         StaticPathConfig(
             "/meds_tracker_panel",
@@ -52,9 +50,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     ])
 
-    # 3. Register the Sidebar Panel
-    # Using explicit keyword arguments to solve the TypeError 'unhashable dict'
-    # and using a flat config to solve the 'html_url' error.
+    # 3. Register Sidebar Panel
+    # Note: We must use module_url and name inside the config dict
+    # to stop the frontend from looking for 'html_url'.
     async_register_built_in_panel(
         hass,
         component_name="custom",
@@ -64,17 +62,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         config={
             "name": "meds-tracker-panel",
             "module_url": "/meds_tracker_panel/meds-tracker-panel.js",
+            "embed_iframe": False,
             "trust_external_script": True,
         },
         require_admin=False,
     )
 
-    # Set up sensor platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
     _LOGGER.info("Meds Tracker integration loaded successfully")
     return True
-
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
@@ -83,11 +79,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator.teardown()
 
     await async_unregister_services(hass)
-
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     try:
-        # Modern API panel removal
         async_remove_panel(hass, PANEL_URL)
     except Exception:  # noqa: BLE001
         pass
