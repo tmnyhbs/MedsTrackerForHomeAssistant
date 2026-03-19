@@ -37,31 +37,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register HA services
     await async_setup_services(hass, coordinator)
 
-    # Serve the frontend panel JS as a static file
+    # --- FRONTEND REGISTRATION ---
+
+    # 1. Identify the physical folder
     frontend_dir = os.path.join(os.path.dirname(__file__), "frontend")
-    panel_js = os.path.join(frontend_dir, "meds-tracker-panel.js")
     
-    # Register static path (Modern API)
+    # 2. Register the FOLDER as a static path (maps URL to Disk)
+    # This allows us to access files via /meds_tracker_panel/filename.js
     await hass.http.async_register_static_paths([
         StaticPathConfig(
-            "/meds_tracker_panel/meds-tracker-panel.js",
-            panel_js,
+            "/meds_tracker_panel",
+            frontend_dir,
             False,
         )
     ])
 
-    # Register the sidebar panel (Modern API)
+    # 3. Register the Sidebar Panel
+    # Using explicit keyword arguments to solve the TypeError 'unhashable dict'
+    # and using a flat config to solve the 'html_url' error.
     async_register_built_in_panel(
         hass,
-        "custom",
-        PANEL_TITLE,
-        PANEL_ICON,
-        PANEL_URL,
-        {
-            "_panel_custom": {
-                "name": "meds-tracker-panel",
-                "module_url": "/meds_tracker_panel/meds-tracker-panel.js",
-            }
+        component_name="custom",
+        sidebar_title=PANEL_TITLE,
+        sidebar_icon=PANEL_ICON,
+        frontend_url_path=PANEL_URL,
+        config={
+            "name": "meds-tracker-panel",
+            "module_url": "/meds_tracker_panel/meds-tracker-panel.js",
+            "trust_external_script": True,
         },
         require_admin=False,
     )
