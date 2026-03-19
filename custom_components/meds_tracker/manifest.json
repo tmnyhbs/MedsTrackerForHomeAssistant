@@ -1,0 +1,12 @@
+{
+  "domain": "meds_tracker",
+  "name": "Meds Tracker",
+  "version": "1.0.0",
+  "documentation": "https://github.com/yourusername/ha-meds-tracker",
+  "issue_tracker": "https://github.com/yourusername/ha-meds-tracker/issues",
+  "codeowners": [],
+  "requirements": [],
+  "dependencies": ["http"],
+  "iot_class": "local_push",
+  "config_flow": true
+}

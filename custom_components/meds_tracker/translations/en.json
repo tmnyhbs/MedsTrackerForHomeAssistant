@@ -1,0 +1,19 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Meds Tracker Setup",
+        "description": "Configure your Meds Tracker. You can change these settings later in the panel.",
+        "data": {
+          "notify_service": "Notification Service"
+        },
+        "data_description": {
+          "notify_service": "The notify.* service used for medication reminders. Use notify.mobile_app_everyone to reach all household phones."
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only one Meds Tracker instance is allowed."
+    }
+  }
+}
