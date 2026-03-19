@@ -4,6 +4,10 @@ from __future__ import annotations
 import logging
 import os
 
+from homeassistant.components.frontend import (
+    async_register_built_in_panel,
+    async_remove_panel,
+)
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -37,7 +41,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     frontend_dir = os.path.join(os.path.dirname(__file__), "frontend")
     panel_js = os.path.join(frontend_dir, "meds-tracker-panel.js")
     
-    # FIX: Use await and remove the 'cache_headers' keyword argument
+    # Register static path (Modern API)
     await hass.http.async_register_static_paths([
         StaticPathConfig(
             "/meds_tracker_panel/meds-tracker-panel.js",
@@ -46,8 +50,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     ])
 
-    # Register the sidebar panel
-    hass.components.frontend.async_register_built_in_panel(
+    # Register the sidebar panel (Modern API)
+    async_register_built_in_panel(
+        hass,
         "custom",
         PANEL_TITLE,
         PANEL_ICON,
@@ -79,7 +84,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     try:
-        hass.components.frontend.async_remove_panel(PANEL_URL)
+        # Modern API panel removal
+        async_remove_panel(hass, PANEL_URL)
     except Exception:  # noqa: BLE001
         pass
 
