@@ -36,11 +36,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Serve the frontend panel JS as a static file
     frontend_dir = os.path.join(os.path.dirname(__file__), "frontend")
     panel_js = os.path.join(frontend_dir, "meds-tracker-panel.js")
-    hass.http.async_register_static_paths([
+    
+    # FIX: Use await and remove the 'cache_headers' keyword argument
+    await hass.http.async_register_static_paths([
         StaticPathConfig(
             "/meds_tracker_panel/meds-tracker-panel.js",
             panel_js,
-            cache_headers=False,
+            False,
         )
     ])
 
