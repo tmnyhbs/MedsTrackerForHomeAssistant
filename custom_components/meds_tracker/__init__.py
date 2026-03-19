@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 
 from homeassistant.components.frontend import async_register_built_in_panel, async_remove_panel
-from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
@@ -18,8 +18,13 @@ from .store import MedsTrackerStore
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
 
-# Resolved once at module load so the path is always correct
-_COMPONENT_DIR = os.path.dirname(__file__)
+JS_FILENAME = "meds-tracker-panel.js"
+
+
+def _copy_panel_js(src: str, dst: str) -> None:
+    """Blocking file copy — must be called via executor."""
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    shutil.copy2(src, dst)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -30,28 +35,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data[DOMAIN] = coordinator
 
-    # Register REST API views
     for view_cls in ALL_VIEWS:
         hass.http.register_view(view_cls)
 
-    # Register HA services
     await async_setup_services(hass, coordinator)
 
-    # Serve the frontend JS as a static path
-    panel_js = os.path.join(_COMPONENT_DIR, "frontend", "meds-tracker-panel.js")
-    _LOGGER.debug("Registering panel JS from: %s", panel_js)
+    # ── Copy panel JS into config/www/ via executor (non-blocking) ───
+    src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", JS_FILENAME)
+    dst = hass.config.path("www", JS_FILENAME)
 
-    hass.http.async_register_static_paths(
-        [
-            StaticPathConfig(
-                url_path="/meds_tracker_panel/meds-tracker-panel.js",
-                path=panel_js,
-                cache_headers=False,
-            )
-        ]
-    )
+    try:
+        await hass.async_add_executor_job(_copy_panel_js, src, dst)
+        _LOGGER.info("Meds Tracker: panel JS copied to %s", dst)
+    except Exception as exc:
+        _LOGGER.error(
+            "Meds Tracker: failed to copy panel JS to www/ — %s. "
+            "Manually copy frontend/%s to config/www/ and restart.",
+            exc, JS_FILENAME,
+        )
+        return False
 
-    # Register the sidebar panel using the direct frontend import
+    # ── Remove any stale panel registration before re-registering ────
+    try:
+        async_remove_panel(hass, PANEL_URL)
+        _LOGGER.debug("Meds Tracker: removed stale panel registration for %s", PANEL_URL)
+    except Exception:  # noqa: BLE001
+        pass  # Not registered yet — that's fine
+
+    # ── Register sidebar panel at /local/ ────────────────────────────
     async_register_built_in_panel(
         hass,
         component_name="custom",
@@ -61,7 +72,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         config={
             "_panel_custom": {
                 "name": "meds-tracker-panel",
-                "module_url": "/meds_tracker_panel/meds-tracker-panel.js",
+                "module_url": f"/local/{JS_FILENAME}",
                 "embed_iframe": False,
                 "trust_external": False,
             }
@@ -69,10 +80,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         require_admin=False,
     )
 
-    # Set up sensor platform
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    _LOGGER.info("Meds Tracker integration loaded successfully")
+    _LOGGER.info("Meds Tracker ready — panel at /local/%s", JS_FILENAME)
     return True
 
 
@@ -83,7 +93,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator.teardown()
 
     await async_unregister_services(hass)
-
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     try:

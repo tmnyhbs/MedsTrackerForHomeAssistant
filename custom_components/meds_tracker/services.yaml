@@ -1,0 +1,25 @@
+confirm_dose:
+  name: Confirm Dose
+  description: Mark a scheduled medication dose as given.
+  fields:
+    medication_id:
+      name: Medication ID
+      description: The ID of the medication (found in sensor attributes).
+      required: true
+      example: "abc12345"
+      selector:
+        text:
+    schedule_id:
+      name: Schedule ID
+      description: The ID of the schedule slot (found in sensor attributes).
+      required: true
+      example: "def67890"
+      selector:
+        text:
+    confirmed_by:
+      name: Confirmed By
+      description: Name of the person giving the medication (optional).
+      required: false
+      example: "Alice"
+      selector:
+        text:
