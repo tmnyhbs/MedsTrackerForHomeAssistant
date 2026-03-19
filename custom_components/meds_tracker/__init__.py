@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
@@ -35,11 +36,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Serve the frontend panel JS as a static file
     frontend_dir = os.path.join(os.path.dirname(__file__), "frontend")
     panel_js = os.path.join(frontend_dir, "meds-tracker-panel.js")
-    hass.http.register_static_path(
-        "/meds_tracker_panel/meds-tracker-panel.js",
-        panel_js,
-        cache_headers=False,
-    )
+    hass.http.async_register_static_paths([
+        StaticPathConfig(
+            "/meds_tracker_panel/meds-tracker-panel.js",
+            panel_js,
+            cache_headers=False,
+        )
+    ])
 
     # Register the sidebar panel
     hass.components.frontend.async_register_built_in_panel(
