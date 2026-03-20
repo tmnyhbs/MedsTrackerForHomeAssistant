@@ -6,6 +6,7 @@ import os
 import shutil
 
 from homeassistant.components.frontend import async_register_built_in_panel, async_remove_panel
+from homeassistant.components.lovelace.resources import ResourceStorageCollection
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
@@ -18,8 +19,9 @@ from .store import MedsTrackerStore
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
 
-JS_PANEL = "meds-tracker-panel.js"
-JS_CARD  = "meds-tracker-card.js"
+JS_PANEL     = "meds-tracker-panel.js"
+JS_CARD      = "meds-tracker-card.js"
+CARD_RES_URL = f"/local/{JS_CARD}"
 
 
 def _copy_frontend(src_dir: str, www_dir: str) -> None:
@@ -32,6 +34,41 @@ def _copy_frontend(src_dir: str, www_dir: str) -> None:
             shutil.copy2(src, dst)
         else:
             raise FileNotFoundError(f"Missing frontend file: {src}")
+
+
+async def _async_register_card_resource(hass: HomeAssistant) -> None:
+    """Add the card JS as a Lovelace resource if not already present."""
+    try:
+        lovelace = hass.data.get("lovelace")
+        if lovelace is None:
+            _LOGGER.debug("Meds Tracker: lovelace not ready, skipping resource registration")
+            return
+
+        resources: ResourceStorageCollection = lovelace.get("resources")
+        if resources is None:
+            _LOGGER.debug("Meds Tracker: lovelace resources not available")
+            return
+
+        # Ensure the collection is loaded
+        await resources.async_load()
+
+        # Check if already registered
+        for item in resources.async_items():
+            if item.get("url") == CARD_RES_URL:
+                _LOGGER.debug("Meds Tracker: card resource already registered")
+                return
+
+        # Register it
+        await resources.async_create_item({"res_type": "module", "url": CARD_RES_URL})
+        _LOGGER.info("Meds Tracker: registered Lovelace resource %s", CARD_RES_URL)
+
+    except Exception as exc:  # noqa: BLE001
+        # Non-fatal — user can register manually
+        _LOGGER.warning(
+            "Meds Tracker: could not auto-register Lovelace resource (%s). "
+            "Add it manually: Settings → Dashboards → Resources → %s (JavaScript module).",
+            exc, CARD_RES_URL,
+        )
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -57,6 +94,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as exc:
         _LOGGER.error("Meds Tracker: failed to copy frontend JS — %s", exc)
         return False
+
+    # ── Register Lovelace card resource ───────────────────────
+    await _async_register_card_resource(hass)
 
     # ── Remove any stale panel before re-registering ──────────
     try:
