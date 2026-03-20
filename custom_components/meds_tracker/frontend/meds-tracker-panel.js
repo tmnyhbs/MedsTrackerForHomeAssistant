@@ -43,6 +43,60 @@ const ICONS = {
   </svg>`,
 };
 
+// ── Time helpers ──────────────────────────────────────────────
+function to12hr(time24) {
+  // "14:30" → { h: 2, m: 30, ampm: "PM" }
+  const [hStr, mStr] = (time24 || "08:00").split(":");
+  let h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  const ampm = h < 12 ? "AM" : "PM";
+  if (h === 0) h = 12;
+  else if (h > 12) h -= 12;
+  return { h, m, ampm };
+}
+
+function to24hr(h, m, ampm) {
+  // (2, 30, "PM") → "14:30"
+  let hour = parseInt(h, 10);
+  const min = parseInt(m, 10);
+  if (ampm === "AM" && hour === 12) hour = 0;
+  else if (ampm === "PM" && hour !== 12) hour += 12;
+  return `${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
+function buildTimePicker(prefix, current24) {
+  const { h, m, ampm } = to12hr(current24);
+  const hours = Array.from({ length: 12 }, (_, i) => i + 1);
+  const mins  = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+  return `
+    <div class="time-picker">
+      <select class="tp-h" data-tp="${prefix}">
+        ${hours.map(x => `<option value="${x}"${x === h ? " selected" : ""}>${x}</option>`).join("")}
+      </select>
+      <span class="tp-sep">:</span>
+      <select class="tp-m" data-tp="${prefix}">
+        ${mins.map(x => `<option value="${x}"${x === m ? " selected" : ""}>${String(x).padStart(2,"0")}</option>`).join("")}
+      </select>
+      <select class="tp-ap" data-tp="${prefix}">
+        <option value="AM"${ampm === "AM" ? " selected" : ""}>AM</option>
+        <option value="PM"${ampm === "PM" ? " selected" : ""}>PM</option>
+      </select>
+    </div>`;
+}
+
+function readTimePicker(container, prefix) {
+  const h    = container.querySelector(`.tp-h[data-tp="${prefix}"]`)?.value;
+  const m    = container.querySelector(`.tp-m[data-tp="${prefix}"]`)?.value;
+  const ampm = container.querySelector(`.tp-ap[data-tp="${prefix}"]`)?.value;
+  if (!h || !m || !ampm) return null;
+  return to24hr(h, m, ampm);
+}
+
+function fmt12hr(time24) {
+  const { h, m, ampm } = to12hr(time24);
+  return `${h}:${String(m).padStart(2,"0")} ${ampm}`;
+}
+
 // ── CSS ───────────────────────────────────────────────────────
 const CSS = /* css */`
   :host {
@@ -287,13 +341,41 @@ const CSS = /* css */`
   .sch-chip button:hover { opacity: 1; color: var(--error-color, #e53935); }
 
   .add-sch-row {
-    display: flex; gap: 8px; align-items: center;
-    padding-top: 6px;
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    padding-top: 8px;
     border-top: 1px solid var(--divider-color);
-    margin-top: 4px;
+    margin-top: 6px;
   }
-  .add-sch-row input[type=time] { max-width: 130px; }
-  .add-sch-row input[type=text] { flex: 1; }
+  .add-sch-row input[type=text] { flex: 1; min-width: 100px; }
+  .add-sch-label { flex: 1; min-width: 100px; }
+
+  /* 12-hour time picker */
+  .time-picker { display: inline-flex; align-items: center; gap: 4px; }
+  .time-picker select {
+    width: auto; padding: 8px 6px;
+    background: var(--primary-background-color);
+    border: 1px solid var(--divider-color);
+    border-radius: 4px;
+    color: var(--primary-text-color);
+    font-size: 0.875rem; font-family: inherit;
+    outline: none; cursor: pointer;
+  }
+  .time-picker select:focus { border-color: var(--primary-color); }
+  .tp-h  { width: 56px !important; }
+  .tp-m  { width: 56px !important; }
+  .tp-ap { width: 60px !important; }
+  .tp-sep { font-weight: 600; color: var(--secondary-text-color); padding: 0 1px; }
+
+  /* Schedule chip edit/delete buttons */
+  .sch-chip-actions { display: inline-flex; gap: 2px; margin-left: 4px; }
+  .sch-chip-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: none; border: none; padding: 2px; border-radius: 3px;
+    color: var(--secondary-text-color); cursor: pointer; opacity: .7;
+    transition: opacity .1s, color .1s;
+  }
+  .sch-chip-btn:hover { opacity: 1; }
+  .sch-chip-btn.del:hover { color: var(--error-color, #e53935); }
 
   /* ── Group label ── */
   .group-label {
@@ -622,10 +704,17 @@ class MedsTrackerPanel extends HTMLElement {
   }
 
   _buildMedBlock(med) {
+    const closeIcon = ICONS.close.replace('width="20"','width="12"').replace('height="20"','height="12"');
+    const editIcon  = ICONS.edit.replace('width="18"','width="12"').replace('height="18"','height="12"');
+
     const chips = (med.schedules ?? []).map(s => `
       <span class="sch-chip">
-        ${ICONS.clock} ${this._esc(s.label || s.time)}
-        <button data-del-sch="${s.id}" data-del-sch-med="${med.id}" title="Remove">${ICONS.close.replace('width="20"','width="14"').replace('height="20"','height="14"')}</button>
+        ${ICONS.clock}
+        ${this._esc(s.label ? `${s.label} (${fmt12hr(s.time)})` : fmt12hr(s.time))}
+        <span class="sch-chip-actions">
+          <button class="sch-chip-btn" data-edit-sch="${s.id}" data-edit-sch-med="${med.id}" title="Edit time">${editIcon}</button>
+          <button class="sch-chip-btn del" data-del-sch="${s.id}" data-del-sch-med="${med.id}" title="Remove">${closeIcon}</button>
+        </span>
       </span>`).join("");
 
     return `
@@ -643,8 +732,8 @@ class MedsTrackerPanel extends HTMLElement {
         ${med.notes ? `<div class="med-notes">${this._esc(med.notes)}</div>` : ""}
         ${chips ? `<div class="sch-chips">${chips}</div>` : `<div class="med-notes" style="margin-bottom:8px">No schedule times yet — add one below.</div>`}
         <div class="add-sch-row">
-          <input type="time" class="sch-time" data-med="${med.id}" />
-          <input type="text" class="sch-label" data-med="${med.id}" placeholder="Label (e.g. Morning)" />
+          ${buildTimePicker(`add_${med.id}`, "08:00")}
+          <input type="text" class="sch-label add-sch-label" data-med="${med.id}" placeholder="Label (e.g. Morning)" />
           <button class="btn-text add-sch" data-med="${med.id}">${ICONS.add} Add time</button>
         </div>
       </div>`;
@@ -704,13 +793,22 @@ class MedsTrackerPanel extends HTMLElement {
     sd.querySelectorAll(".add-sch").forEach(btn =>
       btn.addEventListener("click", () => {
         const mid   = btn.dataset.med;
-        const time  = sd.querySelector(`.sch-time[data-med="${mid}"]`)?.value;
-        const label = sd.querySelector(`.sch-label[data-med="${mid}"]`)?.value ?? "";
+        const time  = readTimePicker(sd, `add_${mid}`);
+        const label = sd.querySelector(`.add-sch-label[data-med="${mid}"]`)?.value ?? "";
         if (time) this._addSchedule(mid, time, label);
       })
     );
     sd.querySelectorAll("[data-del-sch]").forEach(btn =>
       btn.addEventListener("click", () => this._deleteSchedule(btn.dataset.delSchMed, btn.dataset.delSch))
+    );
+    sd.querySelectorAll("[data-edit-sch]").forEach(btn =>
+      btn.addEventListener("click", () => {
+        const medId = btn.dataset.editSchMed;
+        const schId = btn.dataset.editSch;
+        const med   = this._config?.medications?.find(m => m.id === medId);
+        const sch   = med?.schedules?.find(s => s.id === schId);
+        if (sch) this._modalEditSchedule(medId, sch);
+      })
     );
     sd.getElementById("save-settings")?.addEventListener("click", () => {
       const ns = sd.getElementById("ns-input")?.value?.trim();
@@ -854,6 +952,26 @@ class MedsTrackerPanel extends HTMLElement {
         const color = ov.querySelector("#m-color")?.value;
         if (!name) return;
         await this._api("PUT", `meds_tracker/medications/${id}`, { name, notes, color });
+        await this._fetch(); this._renderContent();
+    });
+  }
+
+  _modalEditSchedule(medId, sch) {
+    this._modal("Edit Schedule Time", `
+      <div class="form-row">
+        <label class="form-label">Time</label>
+        ${buildTimePicker("edit_sch", sch.time)}
+      </div>
+      <div class="form-row">
+        <label class="form-label">Label (optional)</label>
+        <input type="text" id="m-sch-label" value="${this._esc(sch.label || "")}" placeholder="Morning, Evening…" />
+      </div>`, async ov => {
+        const newTime  = readTimePicker(ov, "edit_sch");
+        const newLabel = ov.querySelector("#m-sch-label")?.value?.trim() ?? "";
+        if (!newTime) return;
+        // Delete old, add new (storage has no schedule-update endpoint)
+        await this._api("DELETE", `meds_tracker/medications/${medId}/schedules/${sch.id}`);
+        await this._api("POST",   `meds_tracker/medications/${medId}/schedules`, { time: newTime, label: newLabel });
         await this._fetch(); this._renderContent();
     });
   }
