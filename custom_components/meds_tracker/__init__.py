@@ -18,13 +18,20 @@ from .store import MedsTrackerStore
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
 
-JS_FILENAME = "meds-tracker-panel.js"
+JS_PANEL = "meds-tracker-panel.js"
+JS_CARD  = "meds-tracker-card.js"
 
 
-def _copy_panel_js(src: str, dst: str) -> None:
-    """Blocking file copy — must be called via executor."""
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    shutil.copy2(src, dst)
+def _copy_frontend(src_dir: str, www_dir: str) -> None:
+    """Blocking file copies — must be called via executor."""
+    os.makedirs(www_dir, exist_ok=True)
+    for fname in (JS_PANEL, JS_CARD):
+        src = os.path.join(src_dir, fname)
+        dst = os.path.join(www_dir, fname)
+        if os.path.isfile(src):
+            shutil.copy2(src, dst)
+        else:
+            raise FileNotFoundError(f"Missing frontend file: {src}")
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -40,29 +47,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await async_setup_services(hass, coordinator)
 
-    # ── Copy panel JS into config/www/ via executor (non-blocking) ───
-    src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", JS_FILENAME)
-    dst = hass.config.path("www", JS_FILENAME)
+    # ── Copy panel + card JS to config/www/ via executor ─────
+    src_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
+    www_dir = hass.config.path("www")
 
     try:
-        await hass.async_add_executor_job(_copy_panel_js, src, dst)
-        _LOGGER.info("Meds Tracker: panel JS copied to %s", dst)
+        await hass.async_add_executor_job(_copy_frontend, src_dir, www_dir)
+        _LOGGER.info("Meds Tracker: frontend JS copied to %s", www_dir)
     except Exception as exc:
-        _LOGGER.error(
-            "Meds Tracker: failed to copy panel JS to www/ — %s. "
-            "Manually copy frontend/%s to config/www/ and restart.",
-            exc, JS_FILENAME,
-        )
+        _LOGGER.error("Meds Tracker: failed to copy frontend JS — %s", exc)
         return False
 
-    # ── Remove any stale panel registration before re-registering ────
+    # ── Remove any stale panel before re-registering ──────────
     try:
         async_remove_panel(hass, PANEL_URL)
-        _LOGGER.debug("Meds Tracker: removed stale panel registration for %s", PANEL_URL)
     except Exception:  # noqa: BLE001
-        pass  # Not registered yet — that's fine
+        pass
 
-    # ── Register sidebar panel at /local/ ────────────────────────────
+    # ── Register sidebar panel ────────────────────────────────
     async_register_built_in_panel(
         hass,
         component_name="custom",
@@ -72,7 +74,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         config={
             "_panel_custom": {
                 "name": "meds-tracker-panel",
-                "module_url": f"/local/{JS_FILENAME}",
+                "module_url": f"/local/{JS_PANEL}",
                 "embed_iframe": False,
                 "trust_external": False,
             }
@@ -82,7 +84,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    _LOGGER.info("Meds Tracker ready — panel at /local/%s", JS_FILENAME)
+    _LOGGER.info(
+        "Meds Tracker ready — panel at /local/%s · card at /local/%s",
+        JS_PANEL, JS_CARD,
+    )
     return True
 
 
