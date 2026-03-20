@@ -38,6 +38,9 @@ const ICONS = {
   add: `<svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
     <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
   </svg>`,
+  bell: `<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+    <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6V11c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
+  </svg>`,
   warning: `<svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
     <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
   </svg>`,
@@ -372,6 +375,38 @@ const CSS = /* css */`
   .sch-chip-btn:hover { opacity: 1; }
   .sch-chip-btn.del:hover { color: var(--error-color, #e53935); }
 
+  /* ── Notify services section (within med block) ── */
+  .notify-section {
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid var(--divider-color);
+  }
+  .notify-section-label {
+    font-size: 0.72rem; font-weight: 500; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--secondary-text-color);
+    margin-bottom: 6px; display: flex; align-items: center; gap: 5px;
+  }
+  .notify-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .notify-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px; border-radius: 16px;
+    background: rgba(var(--rgb-accent-color, 255,152,0), .1);
+    color: var(--accent-color, #ff9800);
+    font-size: 0.78rem;
+  }
+  .notify-chip-btn {
+    display: inline-flex; align-items: center;
+    background: none; border: none; padding: 1px; border-radius: 3px;
+    color: var(--accent-color, #ff9800); cursor: pointer; opacity: .6;
+    transition: opacity .1s, color .1s;
+  }
+  .notify-chip-btn:hover { opacity: 1; color: var(--error-color, #e53935); }
+  .notify-fallback {
+    font-size: 0.75rem; color: var(--secondary-text-color); font-style: italic;
+    margin-bottom: 6px;
+  }
+  .add-notify-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .add-notify-row select { flex: 1; min-width: 180px; }
+
   /* ── Group label ── */
   .group-label {
     display: flex; align-items: center; gap: 8px;
@@ -479,6 +514,7 @@ class MedsTrackerPanel extends HTMLElement {
     this._hass = null;
     this._config = null;
     this._doses  = [];
+    this._notifyServices = [];   // available notify.* service names from HA
     this._tab    = "dashboard";
     this._loading = true;
     this._booted  = false;
@@ -504,12 +540,20 @@ class MedsTrackerPanel extends HTMLElement {
 
   async _fetch() {
     try {
-      const [cfg, doses] = await Promise.all([
+      const [cfg, doses, allServices] = await Promise.all([
         this._api("GET", "meds_tracker/config"),
         this._api("GET", "meds_tracker/doses/today"),
+        this._api("GET", "services"),
       ]);
       this._config = cfg;
       this._doses  = doses || [];
+      // allServices is an array of { domain, services: {...} }
+      const notifyDomain = (allServices || []).find(s => s.domain === "notify");
+      if (notifyDomain) {
+        this._notifyServices = Object.keys(notifyDomain.services)
+          .map(svc => `notify.${svc}`)
+          .sort();
+      }
     } catch (e) {
       console.error("[MedsTracker] fetch error", e);
       this._config = { recipients: [], medications: [], settings: {} };
@@ -702,7 +746,8 @@ class MedsTrackerPanel extends HTMLElement {
     const closeIcon = ICONS.close.replace('width="20"','width="12"').replace('height="20"','height="12"');
     const editIcon  = ICONS.edit.replace('width="18"','width="12"').replace('height="18"','height="12"');
 
-    const chips = (med.schedules ?? []).map(s => `
+    // ── Schedule chips ───────────────────────────────────────
+    const scheduleChips = (med.schedules ?? []).map(s => `
       <span class="sch-chip">
         ${ICONS.clock}
         ${this._esc(s.label ? `${s.label} (${fmt12hr(s.time)})` : fmt12hr(s.time))}
@@ -711,6 +756,27 @@ class MedsTrackerPanel extends HTMLElement {
           <button class="sch-chip-btn del" data-del-sch="${s.id}" data-del-sch-med="${med.id}" title="Remove">${closeIcon}</button>
         </span>
       </span>`).join("");
+
+    // ── Notify service chips ─────────────────────────────────
+    const assignedServices = med.notify_services ?? [];
+    const globalService    = this._config?.settings?.notify_service ?? "notify.notify";
+
+    const notifyChips = assignedServices.map(svc => `
+      <span class="notify-chip">
+        ${ICONS.bell} ${this._esc(svc)}
+        <button class="notify-chip-btn" data-del-notify="${this._esc(svc)}" data-del-notify-med="${med.id}" title="Remove">${closeIcon}</button>
+      </span>`).join("");
+
+    // Services not already assigned, for the dropdown
+    const available = this._notifyServices.filter(s => !assignedServices.includes(s));
+    const addNotifyRow = `
+      <div class="add-notify-row">
+        <select class="add-notify-svc" data-med="${med.id}">
+          <option value="">— select a service —</option>
+          ${available.map(s => `<option value="${this._esc(s)}">${this._esc(s)}</option>`).join("")}
+        </select>
+        <button class="btn-text add-notify" data-med="${med.id}">${ICONS.add} Add</button>
+      </div>`;
 
     return `
       <div class="med-block" style="border-left-color:${med.color || "var(--primary-color)"}">
@@ -725,11 +791,22 @@ class MedsTrackerPanel extends HTMLElement {
           </div>
         </div>
         ${med.notes ? `<div class="med-notes">${this._esc(med.notes)}</div>` : ""}
-        ${chips ? `<div class="sch-chips">${chips}</div>` : `<div class="med-notes" style="margin-bottom:8px">No schedule times yet — add one below.</div>`}
+
+        ${scheduleChips
+          ? `<div class="sch-chips">${scheduleChips}</div>`
+          : `<div class="med-notes" style="margin-bottom:8px">No schedule times yet — add one below.</div>`}
         <div class="add-sch-row">
           ${buildTimePicker(`add_${med.id}`, "08:00")}
           <input type="text" class="sch-label add-sch-label" data-med="${med.id}" placeholder="Label (e.g. Morning)" />
           <button class="btn-text add-sch" data-med="${med.id}">${ICONS.add} Add time</button>
+        </div>
+
+        <div class="notify-section">
+          <div class="notify-section-label">${ICONS.bell} Notifications</div>
+          ${assignedServices.length
+            ? `<div class="notify-chips">${notifyChips}</div>`
+            : `<div class="notify-fallback">Using global default: ${this._esc(globalService)}</div>`}
+          ${available.length ? addNotifyRow : `<div class="notify-fallback" style="margin-top:4px">All available notify services already assigned.</div>`}
         </div>
       </div>`;
   }
@@ -804,6 +881,19 @@ class MedsTrackerPanel extends HTMLElement {
         const sch   = med?.schedules?.find(s => s.id === schId);
         if (sch) this._modalEditSchedule(medId, sch);
       })
+    );
+    // Notify service add/remove
+    sd.querySelectorAll(".add-notify").forEach(btn =>
+      btn.addEventListener("click", () => {
+        const mid = btn.dataset.med;
+        const svc = sd.querySelector(`.add-notify-svc[data-med="${mid}"]`)?.value;
+        if (svc) this._addNotifyService(mid, svc);
+      })
+    );
+    sd.querySelectorAll("[data-del-notify]").forEach(btn =>
+      btn.addEventListener("click", () =>
+        this._removeNotifyService(btn.dataset.delNotifyMed, btn.dataset.delNotify)
+      )
     );
     sd.getElementById("save-settings")?.addEventListener("click", () => {
       const ns = sd.getElementById("ns-input")?.value?.trim();
@@ -1001,6 +1091,24 @@ class MedsTrackerPanel extends HTMLElement {
 
   async _deleteSchedule(medId, schId) {
     await this._api("DELETE", `meds_tracker/medications/${medId}/schedules/${schId}`);
+    await this._fetch(); this._renderContent();
+  }
+
+  async _addNotifyService(medId, svc) {
+    const med = this._config?.medications?.find(m => m.id === medId);
+    if (!med) return;
+    const services = [...(med.notify_services ?? [])];
+    if (services.includes(svc)) return;
+    services.push(svc);
+    await this._api("PUT", `meds_tracker/medications/${medId}`, { notify_services: services });
+    await this._fetch(); this._renderContent();
+  }
+
+  async _removeNotifyService(medId, svc) {
+    const med = this._config?.medications?.find(m => m.id === medId);
+    if (!med) return;
+    const services = (med.notify_services ?? []).filter(s => s !== svc);
+    await this._api("PUT", `meds_tracker/medications/${medId}`, { notify_services: services });
     await this._fetch(); this._renderContent();
   }
 

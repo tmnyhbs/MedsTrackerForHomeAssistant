@@ -103,7 +103,7 @@ class MedsTrackerCoordinator:
 
     async def _handle_schedule_fire(self, now) -> None:
         current_time = now.strftime("%H:%M")
-        notify_service = self.store.get_settings().get("notify_service", "notify.notify")
+        global_service = self.store.get_settings().get("notify_service", "notify.notify")
 
         for med in self.store.get_medications():
             for sch in med.get("schedules", []):
@@ -112,12 +112,15 @@ class MedsTrackerCoordinator:
                         (r for r in self.store.get_recipients() if r["id"] == med["recipient_id"]),
                         {"name": "Unknown"},
                     )
-                    await self._send_notification(notify_service, med, sch, recipient)
+                    # Use per-med services if set, otherwise fall back to global
+                    services = med.get("notify_services") or [global_service]
+                    for svc in services:
+                        await self._send_notification(svc, med, sch, recipient)
 
         self._notify_listeners()
         self._fire_update()
 
-    async def _send_notification(self, notify_service, med, schedule, recipient) -> None:
+    async def _send_notification(self, notify_service: str, med, schedule, recipient) -> None:
         action_id = f"MEDS_CONFIRM_{med['id']}_{schedule['id']}"
         label = schedule.get("label") or schedule["time"]
         message = f"{label}: {med['name']} for {recipient['name']}"

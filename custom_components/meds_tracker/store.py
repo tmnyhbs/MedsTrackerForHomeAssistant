@@ -120,6 +120,7 @@ class MedsTrackerStore:
             "color": color or "#3498db",
             "notes": notes or "",
             "schedules": [],
+            "notify_services": [],  # empty = use global setting
         }
         self._data["medications"].append(med)
         return med
