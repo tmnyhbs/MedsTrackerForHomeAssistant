@@ -88,7 +88,8 @@ function readTimePicker(container, prefix) {
   const h    = container.querySelector(`.tp-h[data-tp="${prefix}"]`)?.value;
   const m    = container.querySelector(`.tp-m[data-tp="${prefix}"]`)?.value;
   const ampm = container.querySelector(`.tp-ap[data-tp="${prefix}"]`)?.value;
-  if (!h || !m || !ampm) return null;
+  // m can legitimately be "0" (12:00) — check for undefined, not falsy
+  if (!h || m === undefined || m === null || !ampm) return null;
   return to24hr(h, m, ampm);
 }
 
@@ -333,12 +334,6 @@ const CSS = /* css */`
     color: var(--primary-color);
     font-size: 0.78rem;
   }
-  .sch-chip button {
-    display: flex; align-items: center;
-    background: none; padding: 0; color: var(--secondary-text-color);
-    opacity: .7; transition: opacity .1s;
-  }
-  .sch-chip button:hover { opacity: 1; color: var(--error-color, #e53935); }
 
   .add-sch-row {
     display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
@@ -349,10 +344,10 @@ const CSS = /* css */`
   .add-sch-row input[type=text] { flex: 1; min-width: 100px; }
   .add-sch-label { flex: 1; min-width: 100px; }
 
-  /* 12-hour time picker */
+  /* 12-hour time picker — !important needed to beat global select { width:100% } */
   .time-picker { display: inline-flex; align-items: center; gap: 4px; }
   .time-picker select {
-    width: auto; padding: 8px 6px;
+    width: auto !important; padding: 8px 6px !important;
     background: var(--primary-background-color);
     border: 1px solid var(--divider-color);
     border-radius: 4px;
@@ -361,17 +356,17 @@ const CSS = /* css */`
     outline: none; cursor: pointer;
   }
   .time-picker select:focus { border-color: var(--primary-color); }
-  .tp-h  { width: 56px !important; }
-  .tp-m  { width: 56px !important; }
-  .tp-ap { width: 60px !important; }
+  .tp-h  { width: 58px !important; }
+  .tp-m  { width: 58px !important; }
+  .tp-ap { width: 62px !important; }
   .tp-sep { font-weight: 600; color: var(--secondary-text-color); padding: 0 1px; }
 
-  /* Schedule chip edit/delete buttons */
-  .sch-chip-actions { display: inline-flex; gap: 2px; margin-left: 4px; }
+  /* Schedule chip action buttons */
+  .sch-chip-actions { display: inline-flex; gap: 2px; margin-left: 2px; }
   .sch-chip-btn {
     display: inline-flex; align-items: center; justify-content: center;
     background: none; border: none; padding: 2px; border-radius: 3px;
-    color: var(--secondary-text-color); cursor: pointer; opacity: .7;
+    color: var(--primary-color); cursor: pointer; opacity: .6;
     transition: opacity .1s, color .1s;
   }
   .sch-chip-btn:hover { opacity: 1; }
@@ -964,15 +959,18 @@ class MedsTrackerPanel extends HTMLElement {
       </div>
       <div class="form-row">
         <label class="form-label">Label (optional)</label>
-        <input type="text" id="m-sch-label" value="${this._esc(sch.label || "")}" placeholder="Morning, Evening…" />
+        <input type="text" id="m-sch-label" value="${this._esc(sch.label || "")}" placeholder="Morning, Evening…" autofocus />
       </div>`, async ov => {
         const newTime  = readTimePicker(ov, "edit_sch");
         const newLabel = ov.querySelector("#m-sch-label")?.value?.trim() ?? "";
-        if (!newTime) return;
-        // Delete old, add new (storage has no schedule-update endpoint)
+        if (!newTime) {
+          console.error("[MedsTracker] readTimePicker returned null for edit_sch", ov.innerHTML);
+          return;
+        }
         await this._api("DELETE", `meds_tracker/medications/${medId}/schedules/${sch.id}`);
         await this._api("POST",   `meds_tracker/medications/${medId}/schedules`, { time: newTime, label: newLabel });
-        await this._fetch(); this._renderContent();
+        await this._fetch();
+        this._renderContent();
     });
   }
 
