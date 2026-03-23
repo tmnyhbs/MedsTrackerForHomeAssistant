@@ -89,6 +89,7 @@ class MedsTrackerCard extends HTMLElement {
       if (cfg.recipient_id && med.recipient_id !== cfg.recipient_id) continue;
       const rec = recs.find(r => r.id === med.recipient_id);
       for (const sch of (med.schedules ?? [])) {
+        if (sch.due_today === false) continue;
         const status = this._doseStatus(med.id, sch.id, sch.time);
         const dose = this._doses.find(d => d.medication_id === med.id && d.schedule_id === sch.id);
         items.push({ med, sch, rec, status, dose });
