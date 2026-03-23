@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_change
@@ -70,6 +71,22 @@ class MedsTrackerCoordinator:
     # Scheduling
     # ------------------------------------------------------------------
 
+    def _is_due(self, schedule: dict, now) -> bool:
+        """Return True if this schedule should fire/show today."""
+        rec = schedule.get("recurrence") or {"type": "daily"}
+        rtype = rec.get("type", "daily")
+        today = now if isinstance(now, date) else now.date() if hasattr(now, "date") else date.today()
+        if rtype == "daily":
+            return True
+        if rtype == "weekly":
+            return today.weekday() in rec.get("days", [])
+        if rtype == "interval":
+            next_due = rec.get("next_due", "")
+            if not next_due:
+                return True
+            return today.isoformat() >= next_due
+        return True
+
     def _rebuild_schedules(self) -> None:
         for unsub in self._schedule_unsubs:
             try:
@@ -107,15 +124,17 @@ class MedsTrackerCoordinator:
 
         for med in self.store.get_medications():
             for sch in med.get("schedules", []):
-                if sch.get("time") == current_time:
-                    recipient = next(
-                        (r for r in self.store.get_recipients() if r["id"] == med["recipient_id"]),
-                        {"name": "Unknown"},
-                    )
-                    # Use per-med services if set, otherwise fall back to global
-                    services = med.get("notify_services") or [global_service]
-                    for svc in services:
-                        await self._send_notification(svc, med, sch, recipient)
+                if sch.get("time") != current_time:
+                    continue
+                if not self._is_due(sch, now):
+                    continue
+                recipient = next(
+                    (r for r in self.store.get_recipients() if r["id"] == med["recipient_id"]),
+                    {"name": "Unknown"},
+                )
+                services = med.get("notify_services") or [global_service]
+                for svc in services:
+                    await self._send_notification(svc, med, sch, recipient)
 
         self._notify_listeners()
         self._fire_update()
@@ -124,6 +143,7 @@ class MedsTrackerCoordinator:
         action_id = f"MEDS_CONFIRM_{med['id']}_{schedule['id']}"
         label = schedule.get("label") or schedule["time"]
         message = f"{label}: {med['name']} for {recipient['name']}"
+        panel_path = "/meds-tracker"
         try:
             parts = notify_service.split(".", 1)
             domain = parts[0]
@@ -132,10 +152,27 @@ class MedsTrackerCoordinator:
                 domain,
                 service,
                 {
-                    "title": "💊 Meds Reminder",
+                    "title": "Meds Reminder",
                     "message": message,
                     "data": {
-                        "actions": [{"action": action_id, "title": "✅ Mark Given"}],
+                        # iOS: tap body opens panel; Android: clickAction
+                        "url": panel_path,
+                        "clickAction": panel_path,
+                        "actions": [
+                            {
+                                "action": action_id,
+                                "title": "Mark Given",
+                                # iOS Companion App background action flags
+                                "activationMode": "background",
+                                "authenticationRequired": False,
+                                "destructive": False,
+                            },
+                            {
+                                "action": "URI",
+                                "title": "Open Tracker",
+                                "uri": panel_path,
+                            },
+                        ],
                         "tag": action_id,
                         "persistent": True,
                     },
@@ -175,9 +212,22 @@ class MedsTrackerCoordinator:
         self, medication_id: str, schedule_id: str, confirmed_by: str = ""
     ) -> dict:
         entry = self.store.confirm_dose(medication_id, schedule_id, confirmed_by)
+        self.store.advance_interval_next_due(medication_id, schedule_id)
         await self.store.async_save()
         self._notify_listeners()
         self._fire_update()
+        return entry
+
+    async def update_dose_confirmed_by(
+        self, medication_id: str, schedule_id: str, dose_date: str, confirmed_by: str
+    ) -> dict | None:
+        entry = self.store.update_dose_confirmed_by(
+            medication_id, schedule_id, dose_date, confirmed_by
+        )
+        if entry:
+            await self.store.async_save()
+            self._notify_listeners()
+            self._fire_update()
         return entry
 
     async def add_recipient(self, name: str, type_: str, icon: str) -> dict:
@@ -219,9 +269,9 @@ class MedsTrackerCoordinator:
         self._fire_update()
 
     async def add_schedule(
-        self, med_id: str, time: str, label: str
+        self, med_id: str, time: str, label: str, recurrence: dict | None = None
     ) -> dict | None:
-        sch, med = self.store.add_schedule(med_id, time, label)
+        sch, med = self.store.add_schedule(med_id, time, label, recurrence)
         if sch is None:
             return None
         await self.store.async_save()
@@ -247,9 +297,20 @@ class MedsTrackerCoordinator:
     # ------------------------------------------------------------------
 
     def get_config(self) -> dict:
+        today = date.today()
+        medications = []
+        for med in self.store.get_medications():
+            med_copy = dict(med)
+            schedules = []
+            for sch in med.get("schedules", []):
+                sch_copy = dict(sch)
+                sch_copy["due_today"] = self._is_due(sch, today)
+                schedules.append(sch_copy)
+            med_copy["schedules"] = schedules
+            medications.append(med_copy)
         return {
             "recipients": self.store.get_recipients(),
-            "medications": self.store.get_medications(),
+            "medications": medications,
             "settings": self.store.get_settings(),
         }
 

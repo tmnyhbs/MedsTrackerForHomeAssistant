@@ -143,6 +143,7 @@ class MedsSchedulesView(HomeAssistantView):
             med_id,
             data.get("time", "08:00"),
             data.get("label", ""),
+            data.get("recurrence") or {"type": "daily"},
         )
         return self.json(sch or {"error": "medication_not_found"})
 
@@ -155,6 +156,26 @@ class MedsScheduleView(HomeAssistantView):
     async def delete(self, request, med_id, schedule_id):
         await _coord(request).delete_schedule(med_id, schedule_id)
         return self.json({"ok": True})
+
+
+# ------------------------------------------------------------------
+# Dose confirmed_by update
+# ------------------------------------------------------------------
+
+class MedsDoseUpdateView(HomeAssistantView):
+    url = "/api/meds_tracker/doses/update"
+    name = "api:meds_tracker:doses:update"
+    requires_auth = True
+
+    async def put(self, request):
+        data = await request.json()
+        entry = await _coord(request).update_dose_confirmed_by(
+            data.get("medication_id", ""),
+            data.get("schedule_id", ""),
+            data.get("date", ""),
+            data.get("confirmed_by", ""),
+        )
+        return self.json(entry or {"error": "not_found"})
 
 
 # ------------------------------------------------------------------
@@ -176,6 +197,7 @@ ALL_VIEWS = [
     MedsConfigView,
     MedsTodayView,
     MedsConfirmView,
+    MedsDoseUpdateView,
     MedsRecipientsView,
     MedsRecipientView,
     MedsMedicationsView,

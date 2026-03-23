@@ -148,12 +148,20 @@ class MedsTrackerStore:
     # ------------------------------------------------------------------
 
     def add_schedule(
-        self, med_id: str, time: str, label: str
+        self, med_id: str, time: str, label: str, recurrence: dict | None = None
     ) -> tuple[dict | None, dict | None]:
         med = self.get_medication(med_id)
         if not med:
             return None, None
-        sch = {"id": self._new_id(), "time": time, "label": label or time}
+        sch = {
+            "id": self._new_id(),
+            "time": time,
+            "label": label or "",
+            "recurrence": recurrence or {"type": "daily"},
+        }
+        # For interval schedules, initialise next_due to today
+        if sch["recurrence"].get("type") == "interval":
+            sch["recurrence"].setdefault("next_due", date.today().isoformat())
         med["schedules"].append(sch)
         return sch, med
 
@@ -164,6 +172,22 @@ class MedsTrackerStore:
         before = len(med["schedules"])
         med["schedules"] = [s for s in med["schedules"] if s["id"] != schedule_id]
         return len(med["schedules"]) < before
+
+    def advance_interval_next_due(self, med_id: str, schedule_id: str) -> None:
+        """Push next_due forward by interval_days after a dose is confirmed."""
+        med = self.get_medication(med_id)
+        if not med:
+            return
+        for sch in med.get("schedules", []):
+            if sch["id"] != schedule_id:
+                continue
+            rec = sch.get("recurrence", {})
+            if rec.get("type") != "interval":
+                return
+            interval = float(rec.get("interval_days", 1))
+            next_dt = datetime.now(timezone.utc) + timedelta(days=interval)
+            rec["next_due"] = next_dt.date().isoformat()
+            return
 
     # ------------------------------------------------------------------
     # Dose log
@@ -196,6 +220,20 @@ class MedsTrackerStore:
         }
         self._data["dose_log"].append(entry)
         return entry
+
+    def update_dose_confirmed_by(
+        self, medication_id: str, schedule_id: str, dose_date: str, confirmed_by: str
+    ) -> dict | None:
+        """Update the confirmed_by field on an existing dose log entry."""
+        for d in self._data["dose_log"]:
+            if (
+                d["medication_id"] == medication_id
+                and d["schedule_id"] == schedule_id
+                and d["date"] == dose_date
+            ):
+                d["confirmed_by"] = confirmed_by
+                return d
+        return None
 
     def cleanup_old_logs(self, days: int = 90) -> None:
         cutoff = (date.today() - timedelta(days=days)).isoformat()
