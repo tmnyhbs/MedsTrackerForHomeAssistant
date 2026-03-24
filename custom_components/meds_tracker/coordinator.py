@@ -128,6 +128,16 @@ class MedsTrackerCoordinator:
                     continue
                 if not self._is_due(sch, now):
                     continue
+                # Skip if already confirmed today
+                today = now.date().isoformat() if hasattr(now, "date") else date.today().isoformat()
+                already_done = any(
+                    d["medication_id"] == med["id"]
+                    and d["schedule_id"] == sch["id"]
+                    and d.get("date") == today
+                    for d in self.store.get_today_doses()
+                )
+                if already_done:
+                    continue
                 recipient = next(
                     (r for r in self.store.get_recipients() if r["id"] == med["recipient_id"]),
                     {"name": "Unknown"},
